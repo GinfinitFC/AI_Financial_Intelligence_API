@@ -1,13 +1,10 @@
-from app.services.stock_service import get_latest_signal
+from app.services.stock_service import get_stock_signal
 from app.services.news_service import get_news_sentiment
 
 
-def analyze_stock(
-    ticker: str,
-    max_articles: int = 10
-):
+def analyze_stock(ticker: str, max_articles: int = 10):
 
-    technicals = get_latest_signal(
+    technicals = get_stock_signal(
         ticker=ticker
     )
 

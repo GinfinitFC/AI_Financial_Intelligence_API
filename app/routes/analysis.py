@@ -1,7 +1,8 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
 from pydantic import BaseModel
 
 from app.services.llm_service import ask_model
+from app.services.analysis_service import analyze_stock
 
 router = APIRouter(prefix="/analysis")
 
@@ -17,3 +18,18 @@ def trending_analysis(request: QuestionRequest):
     return {
         "response": response
     }
+
+@router.get("/stock")
+def stock_analysis(
+    ticker: str,
+    max_articles: int = Query(
+        default=10,
+        ge=1,
+        le=50
+    )
+):
+
+    return analyze_stock(
+        ticker=ticker,
+        max_articles=max_articles
+    )
