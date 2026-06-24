@@ -1,5 +1,5 @@
 from fastapi import APIRouter
-from app.services.news_service import get_news, get_news_sentiment
+from app.services.ticker_news_service import get_news, get_news_sentiment
 from fastapi import Query
 
 router = APIRouter(prefix="/news")

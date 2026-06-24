@@ -1,5 +1,5 @@
 from app.services.stock_service import get_stock_signal
-from app.services.news_service import get_news_sentiment
+from app.services.ticker_news_service import get_news_sentiment
 from app.services.llm_service import analyze_stock_context
 
 

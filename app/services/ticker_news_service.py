@@ -1,38 +1,19 @@
 import yfinance as yf
 from app.services.sentiment_service import hybrid_sentiment, sentiment_label
+from app.utils.news_normalizer import normalize_article
 
-
-def normalize_article(article):
-
-    content = article.get("content", {})
-
-    return {
-        "title": content.get("title"),
-        "summary": content.get("summary"),
-        "publisher": content.get("provider", {}).get("displayName"),
-        "link": content.get("canonicalUrl", {}).get("url"),
-        "published": content.get("pubDate")
-    }
-
-
-def get_news(
-    ticker: str,
-    max_articles: int = 10
-):
+def get_news(ticker: str, max_articles: int = 10):
 
     stock = yf.Ticker(ticker)
 
     news = stock.news
 
     return [
-        normalize_article(article)
+        normalize_article(article, category="ticker", asset=ticker)
         for article in news[:max_articles]
     ]
 
-def get_news_sentiment(
-    ticker: str,
-    max_articles: int = 10
-):
+def get_news_sentiment(ticker: str, max_articles: int = 10):
 
     articles = get_news(
         ticker=ticker,
