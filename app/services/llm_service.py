@@ -88,3 +88,40 @@ def analyze_stock_context(context: dict):
     )
 
     return response.choices[0].message.content
+
+def analyze_macro_context(context: dict):
+
+    prompt = f"""
+        You are a macroeconomic analyst.
+
+        Analyze the current market environment.
+
+        Provide insights based on the following data:
+        {json.dumps(context, indent=2)}
+
+        Identify:
+
+        1. Overall market sentiment
+        2. Main economic themes
+        3. Potential risks
+        4. Potential opportunities
+
+        Keep the answer under 200 words.
+
+    """
+
+    response = client.chat.completions.create(
+        model="gpt-4.1-mini",
+        messages=[
+            {
+                "role": "system",
+                "content": "You are a professional macroeconomic analyst."
+            },
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ]
+    )
+
+    return response.choices[0].message.content
