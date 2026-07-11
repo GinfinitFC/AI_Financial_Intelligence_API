@@ -2,16 +2,22 @@ import yfinance as yf
 from app.services.sentiment_service import hybrid_sentiment, sentiment_label
 from app.utils.news_normalizer import normalize_article
 
-def get_news(ticker: str, max_articles: int = 10):
+
+def get_news(ticker: str, vector_service: None, max_articles: int = 10):
 
     stock = yf.Ticker(ticker)
 
     news = stock.news
 
-    return [
+    normalized_news = [
         normalize_article(article, category="ticker", asset=ticker)
         for article in news[:max_articles]
     ]
+
+    if vector_service:
+        vector_service.ingest_documents(normalized_news)
+
+    return normalized_news
 
 def get_news_sentiment(ticker: str, max_articles: int = 10):
 

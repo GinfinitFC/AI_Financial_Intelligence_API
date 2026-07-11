@@ -2,6 +2,7 @@ from fastapi import APIRouter
 from app.services.ticker_news_service import get_news, get_news_sentiment
 from app.services.macro_service import get_macro_news, get_macro_sentiment
 from fastapi import Query
+from app.services.dependencies import vector_service
 
 router = APIRouter(prefix="/news")
 
@@ -16,6 +17,7 @@ def news(
 ):
     return get_news(
         ticker=ticker,
+        vector_service=vector_service,
         max_articles=max_articles
     )
 
@@ -43,6 +45,7 @@ def macro_news(
     )
 ):
     return get_macro_news(
+        vector_service=vector_service,
         max_articles=max_articles
     )
 

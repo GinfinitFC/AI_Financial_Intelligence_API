@@ -25,7 +25,7 @@ MACRO_TOPICS = [
     "semiconductors"
 ]
 
-def get_macro_news(max_articles: int = 20):
+def get_macro_news(vector_service: None, max_articles: int = 20):
     #v1
     query = (
         'inflation OR '
@@ -47,10 +47,15 @@ def get_macro_news(max_articles: int = 20):
         page_size=max_articles
     )
 
-    return [
+    normalized_news = [
         normalize_newsapi_article(article)
         for article in response["articles"]
     ]
+
+    if vector_service:
+        vector_service.ingest_documents(normalized_news)
+
+    return normalized_news
 
 def get_macro_sentiment(max_articles: int = 20):
     #Retrieve news articles related to macroeconomic topics
