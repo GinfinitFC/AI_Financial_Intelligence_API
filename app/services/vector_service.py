@@ -2,6 +2,7 @@ import logging
 from pathlib import Path
 import pickle
 from typing import List, Dict
+from collections import defaultdict
 
 import faiss
 import numpy as np
@@ -23,11 +24,13 @@ class VectorService:
         # -----------------------------
         # Paths
         # -----------------------------
-        self.storage_path = Path("data/vector_store")
+        # project root
+        BASE_DIR = Path(__file__).resolve().parents[2]
+        self.storage_path = BASE_DIR / "data" / "vector_store"
         self.storage_path.mkdir(parents=True, exist_ok=True)
 
         self.index_path = self.storage_path / "news.index"
-        self.metadata_path = self.storage_path / "metadata.pkl"
+        self.storage_path_path = self.storage_path / "vector_store.pkl"
 
         # -----------------------------
         # Embedding model
@@ -37,13 +40,30 @@ class VectorService:
         self.dimension = self.model.get_sentence_embedding_dimension()
 
         # -----------------------------
-        # Vector DB
+        # FAISS index
         # -----------------------------
         self.index = faiss.IndexFlatIP(self.dimension)
 
-        self.metadata: List[Dict] = []
-        self.document_ids: set[str] = set()
+        # -----------------------------
+        # Document store
+        # -----------------------------
+        self.documents: Dict[str, Dict] = {}
 
+        # -----------------------------
+        # FAISS mappings
+        # -----------------------------
+
+        #Faiss position -> document id
+        self.faiss_to_doc: List[str] = []
+
+        #document id -> Faiss position
+        self.doc_to_faiss: Dict[str, int] = {}
+
+        # -----------------------------
+        # Metadata indexes
+        # -----------------------------
+        self.metadata_index = self._create_metadata_index()
+        
         self.load()
         logger.info("Loaded %d documents", self.count())
     
@@ -69,6 +89,16 @@ class VectorService:
             Published:
             {document.get("published","")}
             """
+    
+    def _create_metadata_index(self):
+
+        return {
+            "asset": defaultdict(set),
+            "category": defaultdict(set),
+            "publisher": defaultdict(set),
+            "source": defaultdict(set),
+            "topics": defaultdict(set),
+        }
     
     def add_documents(self, documents: List[Dict]) -> int:
 
