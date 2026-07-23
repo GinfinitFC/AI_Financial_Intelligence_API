@@ -1,3 +1,4 @@
+from datetime import date
 import logging
 from pathlib import Path
 import pickle
@@ -18,6 +19,9 @@ class SearchFilters:
     publisher: Optional[str] = None
     source: Optional[str] = None
     topics: Optional[List[str]] = None
+
+    start_date: Optional[date] = None
+    end_date: Optional[date] = None
 
 
 class VectorService:
@@ -105,20 +109,17 @@ class VectorService:
             Category:
             {document.get("category", "")}
 
+            Topics:
+            {", ".join(document.get("topics", []))}
+
             Title:
             {document.get("title", "")}
 
             Summary:
             {document.get("summary", "")}
 
-            Publisher:
-            {document.get("publisher", "")}
-
-            Topics:
-            {", ".join(document.get("topics", []))}
-
-            Published:
-            {document.get("published", "")}
+            Content:
+            {document.get("content", "")}
         """
     
     def _create_metadata_index(self):
@@ -129,6 +130,7 @@ class VectorService:
             "publisher": defaultdict(set),
             "source": defaultdict(set),
             "topics": defaultdict(set),
+            "published": defaultdict(set),
         }
     
     def _index_metadata(self, document: Dict) -> None:
@@ -139,7 +141,7 @@ class VectorService:
         doc_id = document["id"]
 
         # Single-value fields
-        for field in ("asset", "category", "publisher", "source"):
+        for field in ("asset", "category", "publisher", "source", "published"):
 
             value = document.get(field)
 
@@ -155,71 +157,16 @@ class VectorService:
         self,
         filters: Optional[SearchFilters] = None,
     ) -> Optional[Set[str]]:
-        """
-        Return candidate document ids.
-        Pre filtering based on metadata can speed up the search.
-        if filters is None, return None (no filtering).
-        """
 
         if filters is None:
             return None
-        
-        candidate_sets = []
 
-        if filters.asset:
-            candidate_sets.append(
-                self.metadata_index["asset"].get(
-                    filters.asset,
-                    set(),
-                )
-            )
-        
-        if filters.category:
-            candidate_sets.append(
-                self.metadata_index["category"].get(
-                    filters.category,
-                    set(),
-                )
-            )
-        
-        if filters.publisher:
-            candidate_sets.append(
-                self.metadata_index["publisher"].get(
-                    filters.publisher,
-                    set(),
-                )
-            )
-        
-        if filters.source:
-            candidate_sets.append(
-                self.metadata_index["source"].get(
-                    filters.source,
-                    set(),
-                )
-            )
-        
-        #Topics is a multi-value field, so we need to union the sets
-        topic_candidates = set()
+        candidates = self._apply_exact_filters(filters)
 
-        for topic in filters.topics or []:
-            topic_candidates |= self.metadata_index["topics"].get(
-                topic,
-                set(),
-            )
-
-        if topic_candidates:
-            candidate_sets.append(topic_candidates)
-
-        if not candidate_sets:
-            return None
-        if candidate_sets and any(len(s) == 0 for s in candidate_sets):
-            return set()
-        
-        #Intersect all candidate sets
-        candidates = candidate_sets[0].copy()
-
-        for candidate_set in candidate_sets[1:]:
-            candidates &= candidate_set
+        candidates = self._apply_date_filters(
+            candidates,
+            filters,
+        )
 
         return candidates
     
@@ -355,16 +302,157 @@ class VectorService:
 
         return results
     
+    def _apply_exact_filters(
+        self,
+        filters: SearchFilters,
+    ) -> Optional[Set[str]]:
+        """
+        Return candidate document ids matching exact metadata filters.
+        If no filters are provided, return None.
+        """
+
+        candidate_sets = []
+
+        exact_fields = ("asset", "category", "publisher", "source",)
+
+        for field in exact_fields:
+            
+            value = getattr(filters, field)
+
+            if value:
+                candidate_sets.append(
+                    self.metadata_index[field].get(
+                        value,
+                        set(),
+                    )
+                )
+
+        if filters.topics:
+
+            topic_candidates = set()
+
+            for topic in filters.topics:
+                topic_candidates |= self.metadata_index["topics"].get(
+                    topic,
+                    set(),
+                )
+
+            candidate_sets.append(topic_candidates)
+        
+        if not candidate_sets:
+            return None
+        
+        candidates = candidate_sets[0].copy()
+
+        for candidate_set in candidate_sets[1:]:
+            candidates &= candidate_set
+
+        return candidates
+
+    def _apply_date_filters(
+        self,
+        candidates: Optional[Set[str]],
+        filters: SearchFilters,
+    ) -> Optional[Set[str]]:
+        """
+        Apply date range filters to candidate document ids.
+        If no candidates are provided, return None.
+        """
+        
+        if filters.start_date is None and filters.end_date is None:
+            return candidates
+
+        matching_docs = set()
+
+        for published_date, doc_ids in self.metadata_index["published"].items():
+
+            if filters.start_date and published_date < filters.start_date:
+                continue
+
+            if filters.end_date and published_date > filters.end_date:
+                continue
+
+            matching_docs |= doc_ids
+        
+        if candidates is None:
+            return matching_docs
+        
+        return candidates & matching_docs
+    
+    def _matches_exact_filters(
+        self,
+        document: Dict,
+        filters: SearchFilters,
+    ) -> bool:
+        """
+        Check whether a document matches all exact filters.
+        """
+
+        exact_fields = (
+            "asset",
+            "category",
+            "publisher",
+            "source",
+        )
+
+        for field in exact_fields:
+
+            filter_value = getattr(filters, field)
+
+            if filter_value is None:
+                continue
+
+            if document.get(field) != filter_value:
+                return False
+
+        # Topics are multi-value
+        if filters.topics:
+
+            document_topics = set(
+                document.get("topics", [])
+            )
+
+            if not document_topics.intersection(filters.topics):
+                return False
+
+        return True
+    
+    def _matches_date_filters(
+        self,
+        document: Dict,
+        filters: SearchFilters,
+    ) -> bool:
+        """
+        Check whether a document falls within the
+        requested publication date range.
+        """
+
+        published = document.get("published")
+
+        if not published:
+            return False
+
+        if (
+            filters.start_date
+            and published < filters.start_date
+        ):
+            return False
+
+        if (
+            filters.end_date
+            and published > filters.end_date
+        ):
+            return False
+
+        return True
+
     def _filter_documents(
         self,
         documents: List[Dict],
         filters: SearchFilters,
     ) -> List[Dict]:
         """
-        Apply metadata filters after semantic search.
-
-        Used when the search is performed on the complete
-        FAISS index instead of a temporary filtered index.
+        Apply post-filtering to retrieved documents.
         """
 
         if filters is None:
@@ -374,43 +462,68 @@ class VectorService:
 
         for document in documents:
 
-            # Asset
-            if filters.asset:
-                if document.get("asset") != filters.asset:
-                    continue
+            if not self._matches_exact_filters(
+                document,
+                filters,
+            ):
+                continue
 
-            # Category
-            if filters.category:
-                if document.get("category") != filters.category:
-                    continue
-
-            # Publisher
-            if filters.publisher:
-                if document.get("publisher") != filters.publisher:
-                    continue
-
-            # Source
-            if filters.source:
-                if document.get("source") != filters.source:
-                    continue
-
-            # Topics
-            if filters.topics:
-
-                document_topics = set(
-                    document.get("topics", [])
-                )
-
-                if not document_topics.intersection(filters.topics):
-                    continue
+            if not self._matches_date_filters(
+                document,
+                filters,
+            ):
+                continue
 
             filtered.append(document)
 
-        #Rerank the filtered documents
-        for rank, document in enumerate(filtered, start=1):
-            document["rank"] = rank
-
         return filtered
+    
+    def _build_context(
+        self,
+        documents: List[Dict],
+    ) -> str:
+        """
+        Format retrieved documents into a prompt-ready context.
+        """
+
+        if not documents:
+            return ""
+
+        header = """
+        Financial News Context
+
+        The following documents were retrieved through semantic search.
+        Each document is ordered by relevance, with Document 1 being the most relevant.
+        """.strip()
+
+        sections = []
+
+        for document in documents:
+
+            section = f"""
+            ==============================
+            Document {document["rank"]}
+            ==============================
+
+            Asset: {document.get("asset", "Unknown")}
+            Source: {document.get("publisher", "Unknown")}
+            Date: {document.get("published", "Unknown")}
+
+            Title:
+            {document.get("title", "")}
+
+            Summary:
+            {document.get("summary", "")}
+
+            Content:
+            {document.get("content", "")}
+            """.strip()
+
+            
+
+            sections.append(section)
+
+        return header + "\n\n" + "\n\n".join(sections)
 
     def add_documents(self, documents: List[Dict]) -> int:
 
@@ -595,9 +708,30 @@ class VectorService:
             filters,
         )
     
-    def retrieve_context(self, query: str, filters: Optional[SearchFilters] = None, k: int = 5) -> str:
+    def retrieve_context(
+        self,
+        query: str,
+        k: int = 5,
+        min_score: float = 0.40,
+        filters: Optional[SearchFilters] = None,
+    ) -> Dict:
+        """
+        Retrieve documents and build LLM-ready context.
+        """
 
-        return None
+        documents = self.similarity_search(
+            query=query,
+            k=k,
+            min_score=min_score,
+            filters=filters,
+        )
+
+        context = self._build_context(documents)
+
+        return {
+            "context": context,
+            "documents": documents,
+        }
     
     def save(self):
 
@@ -679,6 +813,18 @@ class VectorService:
             "documents": self.count(),
             "embedding_model": self.EMBEDDING_MODEL,
             "dimension": self.dimension,
+        }
+    
+    def metadata_stats(self):
+        return {
+            "documents": self.count(),
+            "assets": len(self.metadata_index["asset"]),
+            "publishers": len(self.metadata_index["publisher"]),
+            "topics": len(self.metadata_index["topics"]),
+            "date_range": {
+                "first": min(self.metadata_index["published"]),
+                "last": max(self.metadata_index["published"]),
+            }
         }
 
     def clear(self):
